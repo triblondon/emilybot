@@ -1,35 +1,163 @@
 <!DOCTYPE html>
 <html lang="en">
-
 <head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Emily and Rob wedding photos</title>
-  <meta name="theme-color" content="#ffffff">
-  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/uikit@3.23.4/dist/css/uikit.min.css" />
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@picocss/pico@2/css/pico.fuchsia.min.css">
   <style>
-    html, body { margin: 0; font-family: system-ui; }
+    * { box-sizing: border-box; }
+    .spinner {
+      display: inline-block;
+      width: 1em;
+      height: 1em;
+      border: 2px solid transparent;
+      border-top: 2px solid white;
+      border-radius: 50%;
+      animation: spin 0.8s linear infinite;
+      margin-left: 0.5em;
+    }
+
+    @keyframes spin {
+      to { transform: rotate(360deg); }
+    }
+
+    main {
+      max-width: 500px;
+      margin: auto;
+      padding-top: 2rem;
+      position: relative;
+    }
+    form button .submitting {
+      display: none;
+    }
+    form.submitting button .submitting {
+      display: block;
+    }
+    form.submitting button .normal {
+      display: none;
+    }
+    .toast {
+      position: absolute;
+      width: 100%;
+      opacity: 0;
+      transition: opacity 0.5s;
+    }
+    .toast.active {
+      opacity: 1;
+    }
+    .toast article {
+      box-shadow: 0 0 11px 5px rgba(0,0,0,0.5);
+      display: flex;
+      flex-flow: row nowrap;
+      justify-content: space-between;
+      align-items: center;
+    }
   </style>
 </head>
-
 <body>
-  <h1>Emily & Rob wedding party</h1>
-  <h2>Photo competition</h2>
+  <main class="container">
+    <div class="toast" id="toast-container">
+      <article>
+        <span class="text" id="annoying-toast">
+          <strong>Helena</strong> uploaded "Cosy moments shared"
+        </span>
+        <button id="toast-close" class="close">X</button>
+      </article>
+    </div>
+    <h1>Emily and Rob wedding photos</h1>
+    <p>Share the photos you've taken, to show them on the big screen and EmilyBot will judge you! The best will get printed automatically — can you get yours printed!?</p>
 
-  <form>
-    <label for="uploader-name">Your name</label>
-    <input type="text" id="txtUploaderName" name="uploader-name" />
-    <label for="image-file">Choose a photo!</label>
-    <input type="file" id="fileImagename" name="image-file" required />
-    <button id="btnDoUpload">Judge me!</button>
-  </form>
+    <form id="upload-form" enctype="multipart/form-data">
+      <label for="uploader-name">Your name</label>
+      <input type="text" id="uploader-name" name="uploader-name" placeholder="e.g. Emily" required />
 
+      <label for="image-file">Choose a photo</label>
+      <input type="file" id="image-file" name="image-file" accept="image/*" required />
+
+      <button type="submit" id="submit-button" disabled>
+        <span class="normal">Judge me!</span>
+        <span class="submitting">Uploading <span class="spinner"></span></span>
+      </button>
+    </form>
+  </main>
+
+  <script>
+  document.addEventListener('DOMContentLoaded', () => {
+    const myUploads = [];
+    const toastDuration = 5000;
+
+    const btnEl = document.getElementById('submit-button');
+    const frmEl = document.getElementById('upload-form');
+    const textEl = document.getElementById('uploader-name');
+    const fileEl = document.getElementById('image-file');
+    const toastContEl = document.getElementById('toast-container');
+    const toastContentEl = document.getElementById('annoying-toast');
+    const toastCloseBtnEl = document.getElementById('toast-close');
+
+    const doToast = (() => {
+      let timerID;
+      const dismissToast = () => {
+        toastContEl.classList.remove('active');
+      }
+      toastCloseBtnEl.addEventListener('click', dismissToast);
+      return (html) => {
+        if (timerID) dismissToast();
+        requestAnimationFrame(() => {
+          toastContentEl.innerHTML = html;
+          timerID = setTimeout(dismissToast, toastDuration);
+          toastContEl.classList.add('active');
+        });
+      };
+    })();
+
+    fileEl.addEventListener('change', (evt) => {
+      btnEl.disabled = !(evt.target.value) || frmEl.classList.contains('submitting');
+    })
+
+    btnEl.addEventListener('click', async (evt) => {
+      evt.preventDefault();
+      evt.stopPropagation();
+
+      btnEl.disabled = true;
+      frmEl.classList.add('submitting');
+      const resp = await fetch('/upload', {
+        method: "post",
+        body: new FormData(frmEl)
+      })
+      if (resp.status == 200) {
+        const data = await resp.json();
+        myUploads.push(data.filename);
+        fileEl.value = '';
+        frmEl.classList.remove('submitting');
+        if (window.localStorage) {
+          window.localStorage.setItem('saved-name', textEl.value);
+        }
+      }
+    });
+
+    const es = new EventSource("/stream");
+    es.addEventListener('newImage', ev => {
+      console.log(ev.data);
+      const { filename, uploaderName } = JSON.parse(ev.data);
+      if (!myUploads.includes(filename)) {
+        doToast(`<strong>${uploaderName}</strong> uploaded a photo, and EmilyBot is judging it now.`);
+      } else {
+        doToast(`Upload successful! EmilyBot is judging it now.`);
+      }
+    });
+    es.addEventListener('imageData', ev => {
+      const data = JSON.parse(ev.data);
+      const uploaderName = myUploads.includes(data.filename) ? "You" : data.uploaderName;
+      doToast(`"${data.caption}" by <strong>${uploaderName}</strong> scores ... ${data.finalScore}/10!`);
+    });
+
+    // Init
+    if (window.localStorage && window.localStorage.getItem('saved-name')) {
+      textEl.value = window.localStorage.getItem('saved-name');
+    }
+
+  })
+  </script>
 </body>
-
-<!-- UIkit JS -->
-<script src="https://cdn.jsdelivr.net/npm/uikit@3.23.4/dist/js/uikit.min.js"></script>
-<script src="https://cdn.jsdelivr.net/npm/uikit@3.23.4/dist/js/uikit-icons.min.js"></script>
-
-<script>
-</script>
 </html>

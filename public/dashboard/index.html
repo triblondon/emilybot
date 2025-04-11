@@ -1,0 +1,211 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Emily and Rob wedding photos</title>
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@picocss/pico@2/css/pico.fuchsia.min.css">
+  <style>
+    body, html {
+      margin: 0;
+      padding: 0;
+      height: 100%;
+      background-color: black;
+      overflow: hidden;
+    }
+
+    .slideshow {
+      position: relative;
+      width: 100%;
+      height: 100%;
+    }
+
+    .slideshow img {
+      position: absolute;
+      top: 0; left: 0;
+      width: 100%;
+      height: 100%;
+      object-fit: contain;
+      opacity: 0;
+      transition: opacity 1.5s ease-in-out;
+    }
+
+    .slideshow img.active {
+      opacity: 1;
+      z-index: 2;
+    }
+    .metaContainer {
+      position: absolute;
+      background: rgba(255, 255, 255, 0.6);
+      z-index: 999;
+      border-radius: 5px;
+      max-width: min(50vw, 550px);
+      box-shadow: 0 0 10px 1px rgba(0,0,0,0.5);
+      opacity: 0;
+      transition: none;
+    }
+    .metaContainer.visible { opacity: 1; transition: opacity 1s ease-in; }
+    .metaContainer article { margin: 0; }
+    .topleft { top: 5vh; left: 5vh; }
+    .topright { top: 5vh; right: 5vh; }
+    .bottomleft { bottom: 5vh; left: 5vh; }
+    .bottomright { bottom: 5vh; right: 5vh; }
+
+    .metaContainer .build { opacity: 0; transform: translateY(20px); }
+    .metaContainer.visible .build { opacity: 1; transform: translateY(0); transition: all 0.3s ease-out; }
+
+    .topstrip { background-color: #2a2929; color: white; font-size: 0.7rem; padding: 4px 5px; border-bottom: 1px solid white; }
+    h1 { font-weight: normal; font-size: 1.5rem; margin-bottom: 0.2rem; }
+    p#metaUploader { font-size: 0.9rem; }
+    p#metaAlt { margin-right: 120px; }
+    ol#metaScoring { padding: 0; list-style-type: none; background: #294b37; color: white; position: relative; margin: 0; }
+    ol#metaScoring li { display: flex; flex-flow: row nowrap; justify-content: space-between; padding: 0.1rem 0.3rem; margin: 0; font-size: 0.8rem; }
+    ol#metaScoring li.total { font-weight: bold; border-top: 1px solid white; font-size: 1rem; }
+    ol#metaScoring::before {
+      content: ' ';
+      background: url(/emily-bot.png) 0 0 no-repeat;
+      width: 100px;
+      height: 100px;
+      display: block;
+      position: absolute;
+      z-index: 1000;
+      background-size: contain;
+      bottom: 101%;
+      right: 10px;
+    }
+  </style>
+</head>
+<body>
+  <div class="slideshow" id="slideshow">
+  </div>
+  <div class="metaContainer" id="metaContainer">
+    <article>
+      <h1 id="metaTitle" class='build' style="transition-delay: 0.1s"></h1>
+      <p id="metaUploader" class='build' style="transition-delay: 0.2s"></p>
+      <p id="metaAlt" class='build' style="transition-delay: 0.4s"></p>
+      <div class="topstrip">Instant judgement from <strong>EmilyBot</strong></div>
+      <ol id="metaScoring" class='build' style="transition-delay: 0.6s">
+        <li><span>Base score</span><span>7</span></li>
+        <li><span>Dramatic contrast!</span><span>+1</span></li>
+        <li><span>Can't you take one that's got Emily or Rob in it?!</span><span>-2</span></li>
+        <li class="total"><span>Total</span><span>6</span></li>
+      </ul>
+    </article>
+  </div>
+
+  <script>
+
+  document.body.addEventListener('dblclick', async () => {
+    let wakeLock;
+    try {
+      if (!document.fullscreenElement) {
+        document.documentElement.requestFullscreen();
+        wakeLock = await navigator.wakeLock.request("screen");
+      } else if (document.exitFullscreen) {
+        document.exitFullscreen();
+      }
+    } catch (err) {
+      console.log(`${err.name}, ${err.message}`);
+    }
+  })
+
+  document.addEventListener('DOMContentLoaded', () => {
+    const SLIDE_INTERVAL = 15000;
+    const EMOJI_MAP = {
+      '4': '🤩🤩🤩🤩',
+      '3': '😁😁😁',
+      '2': '😊😊',
+      '1': '👍',
+      '-1': '😬',
+      '-2': '👎👎',
+      '-3': '🙄🙄🙄',
+      '-4': '😡😡😡😡'
+    }
+
+    const container = document.getElementById('slideshow');
+    const metaContainer = document.getElementById('metaContainer');
+    const metaTitle = document.getElementById('metaTitle');
+    const metaAlt = document.getElementById('metaAlt');
+    const metaScoring = document.getElementById('metaScoring');
+
+    // Create two image elements for crossfading
+    const img1 = document.createElement('img');
+    const img2 = document.createElement('img');
+    container.appendChild(img1);
+    container.appendChild(img2);
+    const imageEls = [img1, img2];
+
+    let slideTimer;
+    let activeImgElIdx = 0;
+
+    function timeAgo(date) {
+      const now = new Date();
+      const refDate = new Date(date);
+      const seconds = Math.floor((now - refDate) / 1000);
+
+      const intervals = [
+        { label: "year", seconds: 31536000 },
+        { label: "month", seconds: 2592000 },
+        { label: "week", seconds: 604800 },
+        { label: "day", seconds: 86400 },
+        { label: "hour", seconds: 3600 },
+        { label: "minute", seconds: 60 },
+        { label: "second", seconds: 1 }
+      ];
+      for (const interval of intervals) {
+        const count = Math.floor(seconds / interval.seconds);
+        if (count >= 1) {
+          return `${count} ${interval.label}${count !== 1 ? "s" : ""} ago`;
+        }
+      }
+      return "just now";
+    }
+
+    const showImage = (photo) => {
+
+      // Hide overlay and reset position
+      metaContainer.classList.remove('visible', 'topleft', 'topright', 'bottomleft', 'bottomright');
+      metaContainer.classList.add(photo.leastInterestingCorner || 'bottomright');
+
+      // Update overlay content
+      metaTitle.innerHTML = photo.caption;
+      metaUploader.innerHTML = `by <strong>${photo.uploaderName}</strong> ${timeAgo(photo.timestamp)}`;
+      metaAlt.innerHTML = "It looks like " + photo.alt.toLowerCase();
+      let scoreRows = photo.scoreMods.map(([modVal, label]) => {
+        return `<li><span>${label}</span><span>${EMOJI_MAP[String(modVal)]}</span></li>`
+      }).join('')
+      scoreRows += `<li class='total'><span>FINAL EMILYBOT VERDICT</span><span>${photo.finalScore}</span></li>`;
+      metaScoring.innerHTML = scoreRows;
+
+      // Display next image
+      const nextImgIdx = (activeImgElIdx + 1) % 2;
+      imageEls[nextImgIdx].src = '/images/'+photo.filename;
+      imageEls[nextImgIdx].classList.add('active');
+      imageEls[activeImgElIdx].classList.remove('active');
+      activeImgElIdx = nextImgIdx;
+
+      // Cue overlay build-in
+      setTimeout(() => metaContainer.classList.add("visible"), 3000);
+
+      // Schedule next image change
+      slideTimer = setTimeout(fetchImage, SLIDE_INTERVAL);
+    }
+
+    const fetchImage = async () => {
+      const resp = await fetch('/next-image')
+      const data = await resp.json();
+      if (data) showImage(data);
+    }
+
+    const es = new EventSource("/stream");
+    es.addEventListener('imageData', ev => {
+      clearTimeout(slideTimer);
+      const data = JSON.parse(ev.data);
+      showImage(data);
+    });
+
+    fetchImage();
+  })
+  </script>
+</body>
+</html>
